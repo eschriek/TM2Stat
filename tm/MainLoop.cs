@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Timers;
 
 namespace tm
 {
@@ -19,12 +20,14 @@ namespace tm
         int previousTime;
 
         FixedSizedQueue<int> time_history;
-        const int time_history_limit = 10; /* Size of aforementioned fixed size Q */
+        const int time_history_limit = 100; /* Size of aforementioned fixed size Q */
         const int finish_detection_threshold_low = 5; /* Time counts 'hangs' for a short while when finished, this acts as threshold */
-        const int period_info_interval = 10; /* self explanatory */
+        const int finish_detection_threshold_high = 50; /* Same principle, but beyond this threshold means the map is quit mid-round */
 
         const int REFRESH_RATE = 100;
         const string MAP_NOMAP = "Unnamed";
+
+        const int TIME_INACTIVE = -1;
 
         enum State
         {
@@ -88,30 +91,60 @@ namespace tm
             }
         }
 
-        private string currentMapName;
-        private string CurrentMapName
+        /* Next two variables (online/offline) change mutually exclusive */
+        private string _CurrentOnlineMapName;
+        private string CurrentOnlineMapName
         {
             get
             {
-                return this.currentMapName;
+                return this._CurrentOnlineMapName;
             }
 
             set
             {
-
-                if (value != this.currentMapName)
+                if (value != this._CurrentOnlineMapName)
                 {
-                    this.currentMapName = value;
+                    this._CurrentOnlineMapName = value;
 
                     if (value != MAP_NOMAP)
                     {
-                        Console.WriteLine("Switching map to : " + value);
+                        Console.WriteLine("Switching map to (online) : " + value);
                         mapChanged = true;
 
+                        this.CurrentMapName = value;
                     }
                 }
             }
         }
+
+        private string _CurrentOfflineMapName;
+        private string CurrentOfflineMapName
+        {
+            get
+            {
+                return this._CurrentOfflineMapName;
+            }
+
+            set
+            {
+                if (value != this._CurrentOfflineMapName)
+                {
+                    this._CurrentOfflineMapName = value;
+
+                    if (value != MAP_NOMAP)
+                    {
+                        Console.WriteLine("Switching map to (offline) : " + value);
+                        mapChanged = true;
+
+                        this.CurrentMapName = value;
+                    }
+                }
+            }
+        }
+
+        private string CurrentMapName;
+        private Timer InfoTimer;
+        private const int INFO_TIMER_INTERVAL = 10000;
 
         Hack hack;
         Player player;
@@ -123,63 +156,158 @@ namespace tm
             this.player = p;
 
             time_history = new FixedSizedQueue<int>(time_history_limit);
+            InfoTimer = new Timer(INFO_TIMER_INTERVAL);
+            InfoTimer.Elapsed += InfoTimer_Elapsed;
 
             roundStart = false;
             roundEnd = false;
-            previousTime = -1;
+            previousTime = TIME_INACTIVE;
 
             CurrentMapName = MAP_NOMAP;
+            CurrentOfflineMapName = MAP_NOMAP;
+            CurrentOnlineMapName = MAP_NOMAP;
+
             mapChanged = false;
 
             state = State.RESET;
         }
 
+        private void InfoTimer_Elapsed(object sender, ElapsedEventArgs e)
+        {
+            if (CurrentMapName == MAP_NOMAP)
+                return;
+
+            int? bestTime = (from Time t in currentMap.Times
+                             where t.Validated
+                             select (int?)t.Value).Min();
+
+            var str = string.Format("(Session) {0} -> Best time : {1}, {2} minutes effective playtime, {3} finishes and {4} crashes",
+                                currentMap.Name,
+                                ((bestTime == null) ? "N/A" : Utils.FormatTimeStamp(bestTime.Value)),
+                                (currentMap.EffectivePlayTime / (1000 * 60)),
+                                currentMap.Times.Count(x => x.Validated),
+                                currentMap.AmountCrashes);
+
+            Console.WriteLine(str);
+        }
+
+        private int PossibleFinishTime(int currentTime)
+        {
+            if (currentMap == null)
+                return TIME_INACTIVE;
+
+            var finish_time_query = from x in time_history
+                                    group x by x into g
+                                    let count = g.Count()
+                                    where count >= finish_detection_threshold_low &&
+                                            g.Key != TIME_INACTIVE
+                                    select new { Value = g.Key, Count = count };
+
+            /* Few sanity checks... */
+            if (finish_time_query.Count() > 0
+                && previousTime > 0
+                && currentTime != TIME_INACTIVE)
+            {
+                var finishTime = finish_time_query.First().Value;
+
+                if (currentMap.Times.Count > 0)
+                {
+                    /* Note that this mechanism will fail when debugging */
+                    var timeDiff = DateTime.Now - currentMap.Times.Last().When;
+
+                    if (timeDiff.TotalMilliseconds > finishTime)
+                        return finishTime;
+                }
+                else
+                {
+                    return finishTime;
+                }
+
+            }
+            return TIME_INACTIVE;
+        }
+
+        /* At the time a possible finish time is detected it is impossible to detect whether its a false positive */
+        private void ValidateLastFinishTime(int currentTime)
+        {
+            if (currentMap == null)
+                return;
+
+            var finish_time_query = from x in time_history
+                                    group x by x into g
+                                    let count = g.Count()
+                                    where count >= finish_detection_threshold_high &&
+                                            g.Key != TIME_INACTIVE
+                                    select new { Value = g.Key, Count = count };
+
+            if (finish_time_query.Count() > 0)
+            {
+                var invalidFinishTime = finish_time_query.First().Value;
+
+                int removals = currentMap.Times.RemoveAll(x => x.Value == invalidFinishTime);
+                currentMap.EffectivePlayTime -= (removals*invalidFinishTime);
+
+                Debug.Assert(currentMap.EffectivePlayTime >= 0);
+
+                //Debug.WriteLine("Deleted invalid finish time : " + invalidFinishTime);
+            }
+
+        }
+
         public void Loop()
         {
+            InfoTimer.Start();
+
             while (true)
             {
-                CurrentMapName = Utils.TrimMapNameString(hack.GetOnlineMapName());
+                int time = hack.GetMapTime();
+
+                /* Scan for a new map name if the timer starts running */
+                if (time != TIME_INACTIVE)
+                {
+                    CurrentOnlineMapName = Utils.TrimMapNameString(hack.GetOnlineMapName());
+                    CurrentOfflineMapName = Utils.TrimMapNameString(hack.GetOfflineMapName());
+                }
 
                 if (mapChanged)
                 {
                     mapChanged = false;
-
                     currentMap = new Map() { Name = CurrentMapName };
 
                     player.PlayedMaps.Add(currentMap);
                 }
 
-                if (CurrentMapName != MAP_NOMAP) //currently playing a map
+                /* Currently playing a map */
+                if (CurrentMapName != MAP_NOMAP)
                 {
-                    int time = hack.GetMapTime();
-
                     time_history.Enqueue(time);
 
-                    var q = from x in time_history
-                            group x by x into g
-                            let count = g.Count()
-                            where count >= finish_detection_threshold_low &&
-                                    g.Key != -1
-                            select new { Value = g.Key, Count = count };
+                    var possibleFinishTime = PossibleFinishTime(time);
 
-                    /* This counts as a valid finish time */
-                    if (q.Count() > 0 &&
-                        time == -1 && previousTime > 0)
+                    ValidateLastFinishTime(time);
+
+                    /* This counts as a valid finish time, if the finish_detection_threshold_high is not exceeded */
+                    if (possibleFinishTime != TIME_INACTIVE)
                     {
                         state = State.ROUND_FINISHED;
 
-                        currentMap.Times.Add(new Time() { Value = q.First().Value, When = DateTime.Now });
+                        var finishTime = possibleFinishTime;
+
+                        currentMap.EffectivePlayTime += finishTime;
+                        currentMap.Times.Add(new Time() { Value = finishTime, When = DateTime.Now });
                     }
                     else
                     {
                         /* All other states */
-                        if (time == -1 && previousTime > 0)
+                        if (time == TIME_INACTIVE && previousTime > 0)
                         {
+                            /* TODO, fix */
                             state = State.ROUND_CRASHED;
 
+                            currentMap.EffectivePlayTime += previousTime;
                             currentMap.AmountCrashes++;
                         }
-                        else if (time == -1 && previousTime == -1)
+                        else if (time == TIME_INACTIVE && previousTime == TIME_INACTIVE)
                         {
                             state = State.RESET;
                         }
@@ -193,24 +321,24 @@ namespace tm
                         }
                     }
 
-                    if (state == State.ROUND_FINISHED)
+                    /* Validate possible finish times, if they are not removed by finish_detection_threshold_high than they are
+                     * considered valid */
+                    foreach (Time t in currentMap.Times)
                     {
-                        var str = string.Format("Finish : {0}, Mean : {1}, StdDev : {2}, F/C : {3}",
-                            Utils.FormatTimeStamp(previousTime),
-                            Utils.FormatTimeStamp((int)Math.Floor(currentMap.MeanTime())),
-                            Utils.FormatTimeStamp((int)Math.Floor(currentMap.StdDev())),
-                            currentMap.FCRatio());
-
-                        Console.WriteLine(str);
-                        roundEnd = false;
-
-                        if (currentMap.Times.Count() % period_info_interval == 0)
+                        if (!t.Validated)
                         {
-                            str = string.Format("(Session) Best time : {0} on map {1}, {3} finishes and {4} crashes",
-                                Utils.FormatTimeStamp(currentMap.Times.Min(x => x.Value)),
-                                currentMap.Name,
-                                currentMap.Times.Count(),
-                                currentMap.AmountCrashes);
+                            if ((DateTime.Now - t.When).TotalMilliseconds > (finish_detection_threshold_high * REFRESH_RATE))
+                            {
+                                t.Validated = true;
+
+                                var str = string.Format("Finish : {0}, Mean : {1}, StdDev : {2}, F/C : {3}",
+                                    Utils.FormatTimeStamp(t.Value),
+                                    Utils.FormatTimeStamp((int)Math.Floor(currentMap.MeanTime())),
+                                    Utils.FormatTimeStamp((int)Math.Floor(currentMap.StdDev())),
+                                    currentMap.FCRatio());
+
+                                Console.WriteLine(str);
+                            }
                         }
                     }
 
@@ -224,7 +352,7 @@ namespace tm
                     break;
                 }
 
-                CheckOfflineMapAddress();
+                CheckMapAddresses();
 
                 System.Threading.Thread.Sleep(REFRESH_RATE);
             }
@@ -233,11 +361,11 @@ namespace tm
             {
                 var csv = new StringBuilder();
 
-                var header = string.Format("{0},{1},{2}", m.Times.Count(), m.AmountCrashes, m.FCRatio());
+                var header = string.Format("{0},{1},{2}\n", m.Times.Count(), m.AmountCrashes, m.FCRatio());
 
                 foreach (Time t in m.Times)
                 {
-                    var newLine = string.Format("{0},{1}", t.Value, t.When);
+                    var newLine = string.Format("{0},{1}\n", t.Value, t.When);
                     csv.Append(newLine);
                 }
 
@@ -245,17 +373,29 @@ namespace tm
             }
         }
 
-        private void CheckOfflineMapAddress()
+        private void CheckMapAddresses()
         {
-            var address = hack.GetAddressByName(Hack.LOCAL_MAPNAME_ADDR_ID);
+            var localMapAddress = hack.GetAddressByName(Hack.LOCAL_MAPNAME_ADDR_ID);
 
-            if (address == 0)
+            if (localMapAddress == 0)
             {
                 Boolean ret = hack.RecalculateAddress(Hack.LOCAL_MAPNAME_ADDR_ID);
 
                 if (ret)
                 {
-                    CurrentMapName = Utils.TrimMapNameString(hack.GetOfflineMapName());
+                    CurrentOfflineMapName = Utils.TrimMapNameString(hack.GetOfflineMapName());
+                }
+            }
+
+            var onlineMapAddress = hack.GetAddressByName(Hack.ONLINE_MAPNAME_ADDR_ID);
+
+            if (onlineMapAddress == 0)
+            {
+                Boolean ret = hack.RecalculateAddress(Hack.ONLINE_MAPNAME_ADDR_ID);
+
+                if (ret)
+                {
+                    CurrentOnlineMapName = Utils.TrimMapNameString(hack.GetOnlineMapName());
                 }
             }
         }

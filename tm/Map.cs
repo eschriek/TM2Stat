@@ -9,10 +9,14 @@ namespace tm
         public Map()
         {
             Times = new List<Time>();
+
+            EffectivePlayTime = 0;
+            AmountCrashes = 0;
         }
 
         public int Id { get; set; }
         public string Name { get; set; }
+        public int EffectivePlayTime { get; set; } /* In millies */
 
         public int AmountCrashes { get; set; }
         public List<Time> Times { get; set; }
@@ -20,6 +24,9 @@ namespace tm
         /* Crash to finish ratio */
         public float FCRatio()
         {
+            if (AmountCrashes == 0)
+                return float.PositiveInfinity;
+
             return (float)Times.Count / AmountCrashes;
         }
 
@@ -49,5 +56,6 @@ namespace tm
         public int Id { get; set; }
         public int Value { get; set; }
         public DateTime When { get; set; }
+        public Boolean Validated { get; set; } = false;
     }
 }

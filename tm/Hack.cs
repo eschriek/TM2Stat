@@ -30,8 +30,8 @@ namespace tm
             0xB8
         };
 
-        List<int> mapOfflineNameOffsets = new List<int> { 0x1CE6998, 0xF };
-        List<int> mapOnlineNameOffsets = new List<int> { 0x1C53D78, 0x25 };
+        List<int> mapOfflineNameOffsets = new List<int> { 0x1CE6998, 0x09 };
+        List<int> mapOnlineNameOffsets = new List<int> { 0x1C53D78, 0x17 };
 
         public const string LOCAL_MAPNAME_ADDR_ID = "LocalMapName";
         public const string ONLINE_MAPNAME_ADDR_ID = "OnlineMapName";

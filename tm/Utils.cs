@@ -34,7 +34,7 @@ namespace tm
         public static String DecodeAndPrintTrackManiaColorString(string s)
         {
 
-            Regex r = new Regex(@"\$([0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]|[a-z])");
+            Regex r = new Regex(@"\$([0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]|[a-zA-Z])");
             var ret = r.Replace(s, "");
 
             return ret;
