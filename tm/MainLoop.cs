@@ -25,7 +25,7 @@ namespace tm
         const int finish_detection_threshold_high = 50; /* Same principle, but beyond this threshold means the map is quit mid-round */
 
         const int REFRESH_RATE = 100;
-        const string MAP_NOMAP = "Unnamed";
+        public const string MAP_NOMAP = "Unnamed";
 
         const int TIME_INACTIVE = -1;
 
@@ -91,24 +91,23 @@ namespace tm
             }
         }
 
-        /* Next two variables (online/offline) change mutually exclusive */
-        private string _CurrentOnlineMapName;
-        private string CurrentOnlineMapName
+        private string _CurrentMapName;
+        private string CurrentMapName
         {
             get
             {
-                return this._CurrentOnlineMapName;
+                return this._CurrentMapName;
             }
 
             set
             {
-                if (value != this._CurrentOnlineMapName)
+                if (value != this._CurrentMapName)
                 {
-                    this._CurrentOnlineMapName = value;
+                    this._CurrentMapName = value;
 
                     if (value != MAP_NOMAP)
                     {
-                        Console.WriteLine("Switching map to (online) : " + value);
+                        Console.WriteLine("Switching map to : " + value);
                         mapChanged = true;
 
                         this.CurrentMapName = value;
@@ -117,32 +116,6 @@ namespace tm
             }
         }
 
-        private string _CurrentOfflineMapName;
-        private string CurrentOfflineMapName
-        {
-            get
-            {
-                return this._CurrentOfflineMapName;
-            }
-
-            set
-            {
-                if (value != this._CurrentOfflineMapName)
-                {
-                    this._CurrentOfflineMapName = value;
-
-                    if (value != MAP_NOMAP)
-                    {
-                        Console.WriteLine("Switching map to (offline) : " + value);
-                        mapChanged = true;
-
-                        this.CurrentMapName = value;
-                    }
-                }
-            }
-        }
-
-        private string CurrentMapName;
         private Timer InfoTimer;
         private const int INFO_TIMER_INTERVAL = 10000;
 
@@ -164,8 +137,6 @@ namespace tm
             previousTime = TIME_INACTIVE;
 
             CurrentMapName = MAP_NOMAP;
-            CurrentOfflineMapName = MAP_NOMAP;
-            CurrentOnlineMapName = MAP_NOMAP;
 
             mapChanged = false;
 
@@ -245,7 +216,7 @@ namespace tm
                 var invalidFinishTime = finish_time_query.First().Value;
 
                 int removals = currentMap.Times.RemoveAll(x => x.Value == invalidFinishTime);
-                currentMap.EffectivePlayTime -= (removals*invalidFinishTime);
+                currentMap.EffectivePlayTime -= (removals * invalidFinishTime);
 
                 Debug.Assert(currentMap.EffectivePlayTime >= 0);
 
@@ -260,13 +231,17 @@ namespace tm
 
             while (true)
             {
+                while (hack.GetAddressByName(Hack.TIME_ADDR_ID) == 0)
+                {
+                    hack.RecalculateAddress(Hack.TIME_ADDR_ID);
+                }
+
                 int time = hack.GetMapTime();
 
                 /* Scan for a new map name if the timer starts running */
                 if (time != TIME_INACTIVE)
                 {
-                    CurrentOnlineMapName = Utils.TrimMapNameString(hack.GetOnlineMapName());
-                    CurrentOfflineMapName = Utils.TrimMapNameString(hack.GetOfflineMapName());
+                    CurrentMapName = Utils.TrimMapNameString(hack.GetMapName());
                 }
 
                 if (mapChanged)
@@ -301,11 +276,18 @@ namespace tm
                         /* All other states */
                         if (time == TIME_INACTIVE && previousTime > 0)
                         {
-                            /* TODO, fix */
-                            state = State.ROUND_CRASHED;
+                            Debug.Assert(time_history.Last() == TIME_INACTIVE);
 
-                            currentMap.EffectivePlayTime += previousTime;
-                            currentMap.AmountCrashes++;
+                            var prev = time_history.ElementAt(time_history.Count - 2);
+                            var prev_2 = time_history.ElementAt(time_history.Count - 3);
+
+                            if (prev != prev_2)
+                            {
+                                state = State.ROUND_CRASHED;
+
+                                currentMap.EffectivePlayTime += previousTime;
+                                currentMap.AmountCrashes++;
+                            }
                         }
                         else if (time == TIME_INACTIVE && previousTime == TIME_INACTIVE)
                         {
@@ -352,50 +334,48 @@ namespace tm
                     break;
                 }
 
-                CheckMapAddresses();
+                CheckMapAddress();
 
                 System.Threading.Thread.Sleep(REFRESH_RATE);
             }
 
+            WriteCSV();
+        }
+
+        private void WriteCSV()
+        {
             foreach (Map m in player.PlayedMaps)
             {
                 var csv = new StringBuilder();
 
-                var header = string.Format("{0},{1},{2}\n", m.Times.Count(), m.AmountCrashes, m.FCRatio());
+                var header = string.Format("{0},{1},{2},{3}\n", m.EffectivePlayTime, m.Times.Count(), m.AmountCrashes, m.FCRatio().ToString("0.00"));
+                csv.AppendLine(header);
 
                 foreach (Time t in m.Times)
                 {
+                    if (!t.Validated)
+                        continue;
+
                     var newLine = string.Format("{0},{1}\n", t.Value, t.When);
                     csv.Append(newLine);
                 }
 
-                File.WriteAllText(GetSafeFilename(string.Format("{0}_{1}.csv", m.Name, player.NickName)), csv.ToString());
+                File.WriteAllText(GetSafeFilename(string.Format("{0}_{1}_{2}.csv", m.Name, player.NickName, DateTime.Now.ToString("yyyy-dd-M-HH-mm-ss"))),
+                    csv.ToString());
             }
         }
 
-        private void CheckMapAddresses()
+        private void CheckMapAddress()
         {
-            var localMapAddress = hack.GetAddressByName(Hack.LOCAL_MAPNAME_ADDR_ID);
+            var mapAddress = hack.GetAddressByName(Hack.MAPNAME_ADDR_ID);
 
-            if (localMapAddress == 0)
+            if (mapAddress == 0)
             {
-                Boolean ret = hack.RecalculateAddress(Hack.LOCAL_MAPNAME_ADDR_ID);
+                Boolean ret = hack.RecalculateAddress(Hack.MAPNAME_ADDR_ID);
 
                 if (ret)
                 {
-                    CurrentOfflineMapName = Utils.TrimMapNameString(hack.GetOfflineMapName());
-                }
-            }
-
-            var onlineMapAddress = hack.GetAddressByName(Hack.ONLINE_MAPNAME_ADDR_ID);
-
-            if (onlineMapAddress == 0)
-            {
-                Boolean ret = hack.RecalculateAddress(Hack.ONLINE_MAPNAME_ADDR_ID);
-
-                if (ret)
-                {
-                    CurrentOnlineMapName = Utils.TrimMapNameString(hack.GetOnlineMapName());
+                    CurrentMapName = Utils.TrimMapNameString(hack.GetMapName());
                 }
             }
         }

@@ -13,18 +13,21 @@ namespace tm
 
         static void Main(string[] args)
         {
-            var name = "Schriek"; //todo
-
-            Player player = new Player { NickName = name };
-
             Hack h = new Hack();
             h.PrintGeekStats = true;
 
-            //string[] joysticks = Input.FindJoysticks();
-            //foreach (string s in joysticks)
-            //{
-            //    Console.WriteLine(s);
-            //}
+            while(h.GetAddressByName(Hack.NICKNAME_ADDR_ID) == 0)
+            {
+                h.RecalculateAddress(Hack.NICKNAME_ADDR_ID);
+
+                Console.WriteLine("Waiting for player...");
+
+                System.Threading.Thread.Sleep(2000);
+            }
+
+            Player player = new Player { NickName = Utils.DecodeAndPrintTrackManiaColorString(h.GetPlayerNickname()) };
+
+            Console.WriteLine("Player : " + player.NickName);
 
             MainLoop mainLoop = new MainLoop(h, player);
             mainLoop.Loop();

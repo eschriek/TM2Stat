@@ -13,11 +13,10 @@ namespace tm
         {
             try
             {
-                int delimeter=s.IndexOf("'");
+                //int delimeter=s.IndexOf("'");
+                //var ret = s.Substring(0, delimeter);
 
-                var ret = s.Substring(0, delimeter);
-
-                return DecodeAndPrintTrackManiaColorString(ret);
+                return DecodeAndPrintTrackManiaColorString(s);
             }
             catch (Exception e)
             { }

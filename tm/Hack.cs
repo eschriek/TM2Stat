@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace tm
 {
@@ -24,18 +25,14 @@ namespace tm
         Dictionary<string, Int64> addresses;
         bool printGeekStats = true;
 
-        List<int> timeAddressOffsets = new List<int> {
-            0x1C50FB8,
-            0x28,
-            0xB8
-        };
+        List<int> timeAddressOffsets = new List<int> { 0x1C50FB8,0x28, 0xB8 };
+        List<int> playerNicknameOffsets = new List<int> { 0x1C50EE8, 0x2D0, 0xD0, 0x58, 0x18, 0x20 };
+        List<int> playerNicknameSzOffsets = new List<int> { 0x1C50EE8, 0x2D0, 0xD0, 0x58, 0x18, 0x1C };
+        List<int> logInfoOffsets = new List<int> { 0x1C53D78, 0x00 };
 
-        List<int> mapOfflineNameOffsets = new List<int> { 0x1CE6998, 0x09 };
-        List<int> mapOnlineNameOffsets = new List<int> { 0x1C53D78, 0x17 };
-
-        public const string LOCAL_MAPNAME_ADDR_ID = "LocalMapName";
-        public const string ONLINE_MAPNAME_ADDR_ID = "OnlineMapName";
+        public const string MAPNAME_ADDR_ID = "MapName";
         public const string TIME_ADDR_ID = "Time";
+        public const string NICKNAME_ADDR_ID = "PlayerNickname";
         public const string PROCESS_NAME = "ManiaPlanet";
 
         public bool PrintGeekStats
@@ -73,18 +70,18 @@ namespace tm
                 Console.WriteLine("Module base address : " + moduleBaseAddress.ToInt64().ToString("X"));
 
             Int64 timeAddress = CalculateAddress(processHandle, moduleBaseAddress, timeAddressOffsets);
-            Int64 mapOfflineNameAddress = CalculateAddress(processHandle, moduleBaseAddress, mapOfflineNameOffsets);
-            Int64 mapOnlineNameAddress = CalculateAddress(processHandle, moduleBaseAddress, mapOnlineNameOffsets);
+            Int64 nicknameAddress = CalculateAddress(processHandle, moduleBaseAddress, playerNicknameOffsets);
+            Int64 logInfoAddress = CalculateAddress(processHandle, moduleBaseAddress, logInfoOffsets);
 
             addresses.Add(TIME_ADDR_ID, timeAddress);
-            addresses.Add(LOCAL_MAPNAME_ADDR_ID, mapOfflineNameAddress);
-            addresses.Add(ONLINE_MAPNAME_ADDR_ID, mapOnlineNameAddress);
+            addresses.Add(NICKNAME_ADDR_ID, nicknameAddress);
+            addresses.Add(MAPNAME_ADDR_ID, logInfoAddress);
 
             if (printGeekStats)
             {
                 Console.WriteLine("Time address : " + timeAddress.ToString("X"));
-                Console.WriteLine("LocalMapName address : " + mapOfflineNameAddress.ToString("X"));
-                Console.WriteLine("OnlineMapName address : " + mapOnlineNameAddress.ToString("X"));
+                Console.WriteLine("Nickname address : " + nicknameAddress.ToString("X"));
+                Console.WriteLine("MapName address : " + logInfoAddress.ToString("X"));
             }
         }
 
@@ -115,9 +112,9 @@ namespace tm
             return BitConverter.ToInt64(nextAddress, 0);
         }
 
-        public string ReadString(Int64 address, int offset)
+        public string ReadString(Int64 address, int offset, int bytes = 256, Boolean splitByte = false, byte splitByteDelimiter = 0x00)
         {
-            byte[] value = new byte[256];
+            byte[] value = new byte[bytes];
             int bytesread = 0;
 
             try
@@ -129,10 +126,37 @@ namespace tm
                 throw e;
             }
 
+            if(splitByte)
+            {
+                var idx = Array.IndexOf(value, splitByteDelimiter);
+
+                if(idx != -1)
+                {
+                    value = value.Skip(0).Take(idx).ToArray();
+                }
+            }
+
             return Encoding.UTF8.GetString(value);
         }
 
-        public Int64 ReadAddress(Int64 address, int offset)
+        public int ReadAddress32(Int64 address, int offset)
+        {
+            byte[] value = new byte[4];
+            int bytesread = 0;
+
+            try
+            {
+                ReadProcessMemory((int)processHandle, ((Int64)address + offset), value, 4, ref bytesread);
+            }
+            catch (Exception e)
+            {
+                throw e;
+            }
+
+            return BitConverter.ToInt32(value, 0);
+        }
+
+        public Int64 ReadAddress64(Int64 address, int offset)
         {
             byte[] value = new byte[8];
             int bytesread = 0;
@@ -161,36 +185,52 @@ namespace tm
             return val;
         }
 
-        public String GetOfflineMapName()
+        public String GetMapName()
         {
-            return ReadString(GetAddressByName(LOCAL_MAPNAME_ADDR_ID), mapOfflineNameOffsets.Last());
+            var log = ReadString(GetAddressByName(MAPNAME_ADDR_ID), logInfoOffsets.Last());
+
+            var pattern = @"\[Game\] init challenge '(.+?)'";
+            var match =  Regex.Match(log, pattern);
+
+            if(match.Groups.Count < 2)
+            {
+                return MainLoop.MAP_NOMAP;
+            } 
+
+            return match.Groups[1].Value;
         }
 
-        public String GetOnlineMapName()
+        public String GetPlayerNickname()
         {
-            return ReadString(GetAddressByName(ONLINE_MAPNAME_ADDR_ID), mapOnlineNameOffsets.Last());
+            return ReadString(GetAddressByName(NICKNAME_ADDR_ID), playerNicknameOffsets.Last(), GetPlayerNicknameSize());
+        }
+
+        public int GetPlayerNicknameSize()
+        {
+            return (int)ReadAddress32(GetAddressByName(NICKNAME_ADDR_ID), playerNicknameSzOffsets.Last());
         }
 
         public int GetMapTime()
         {
-            return (int)ReadAddress(GetAddressByName(TIME_ADDR_ID), timeAddressOffsets.Last());
+            return (int)ReadAddress64(GetAddressByName(TIME_ADDR_ID), timeAddressOffsets.Last());
         }
 
         public Boolean RecalculateAddress(string id)
         {
             List<int> offsets;
 
-            if (id.Equals(LOCAL_MAPNAME_ADDR_ID))
+            /* Beautiful construct below */
+            if (id.Equals(MAPNAME_ADDR_ID))
             {
-                offsets = mapOfflineNameOffsets;
-            }
-            else if (id.Equals(ONLINE_MAPNAME_ADDR_ID))
-            {
-                offsets = mapOnlineNameOffsets;
+                offsets = logInfoOffsets;
             }
             else if (id.Equals(TIME_ADDR_ID))
             {
                 offsets = timeAddressOffsets;
+            }
+            else if (id.Equals(NICKNAME_ADDR_ID))
+            {
+                offsets = playerNicknameOffsets;
             }
             else
             {
