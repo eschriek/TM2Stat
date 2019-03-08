@@ -14,9 +14,7 @@ namespace tm
     class MainLoop
     {
 
-        bool mapChanged;
-        bool roundStart, roundEnd;
-
+        Boolean mapChanged;
         int previousTime;
 
         FixedSizedQueue<int> time_history;
@@ -28,68 +26,6 @@ namespace tm
         public const string MAP_NOMAP = "Unnamed";
 
         const int TIME_INACTIVE = -1;
-
-        enum State
-        {
-            RESET, ROUND_BUSY, ROUND_SYNC, ROUND_CRASHED, ROUND_FINISHED
-        }
-
-        private State currentState;
-        private State state
-        {
-            get
-            {
-                return this.currentState;
-            }
-
-            set
-            {
-                switch (value)
-                {
-                    case State.RESET:
-                        {
-                            roundStart = false;
-                            roundEnd = false;
-
-                            break;
-                        }
-                    case State.ROUND_BUSY:
-                        {
-                            if (this.currentState == State.ROUND_SYNC) //previous state sync -> round start
-                            {
-                                roundStart = true;
-                            }
-
-                            break;
-                        }
-                    case State.ROUND_SYNC:
-                        {
-                            if (this.currentState == State.ROUND_BUSY) //busy -> sync -> round end
-                            {
-                                roundEnd = true;
-                            }
-
-                            break;
-                        }
-                    case State.ROUND_CRASHED:
-                        {
-                            roundEnd = true;
-                            break;
-                        }
-                    case State.ROUND_FINISHED:
-                        {
-                            roundEnd = true;
-                            break;
-                        }
-                    default:
-                        {
-                            break;
-                        }
-                }
-
-                this.currentState = value;
-            }
-        }
 
         private string _CurrentMapName;
         private string CurrentMapName
@@ -117,7 +53,7 @@ namespace tm
         }
 
         private Timer InfoTimer;
-        private const int INFO_TIMER_INTERVAL = 10000;
+        private const int INFO_TIMER_INTERVAL = 3*60000;
 
         Hack hack;
         Player player;
@@ -132,15 +68,10 @@ namespace tm
             InfoTimer = new Timer(INFO_TIMER_INTERVAL);
             InfoTimer.Elapsed += InfoTimer_Elapsed;
 
-            roundStart = false;
-            roundEnd = false;
             previousTime = TIME_INACTIVE;
-
             CurrentMapName = MAP_NOMAP;
 
             mapChanged = false;
-
-            state = State.RESET;
         }
 
         private void InfoTimer_Elapsed(object sender, ElapsedEventArgs e)
@@ -177,7 +108,7 @@ namespace tm
             /* Few sanity checks... */
             if (finish_time_query.Count() > 0
                 && previousTime > 0
-                && currentTime != TIME_INACTIVE)
+                && currentTime > 0)
             {
                 var finishTime = finish_time_query.First().Value;
 
@@ -195,6 +126,7 @@ namespace tm
                 }
 
             }
+
             return TIME_INACTIVE;
         }
 
@@ -227,6 +159,8 @@ namespace tm
 
         public void Loop()
         {
+            Console.WriteLine(string.Format("Periodic session information every {0} minutes.", INFO_TIMER_INTERVAL / 60000));
+
             InfoTimer.Start();
 
             while (true)
@@ -264,8 +198,6 @@ namespace tm
                     /* This counts as a valid finish time, if the finish_detection_threshold_high is not exceeded */
                     if (possibleFinishTime != TIME_INACTIVE)
                     {
-                        state = State.ROUND_FINISHED;
-
                         var finishTime = possibleFinishTime;
 
                         currentMap.EffectivePlayTime += finishTime;
@@ -283,23 +215,9 @@ namespace tm
 
                             if (prev != prev_2)
                             {
-                                state = State.ROUND_CRASHED;
-
                                 currentMap.EffectivePlayTime += previousTime;
                                 currentMap.AmountCrashes++;
                             }
-                        }
-                        else if (time == TIME_INACTIVE && previousTime == TIME_INACTIVE)
-                        {
-                            state = State.RESET;
-                        }
-                        else if (time == 0)
-                        {
-                            state = State.ROUND_SYNC;
-                        }
-                        else
-                        {
-                            state = State.ROUND_BUSY;
                         }
                     }
 
@@ -342,13 +260,13 @@ namespace tm
             WriteCSV();
         }
 
-        private void WriteCSV()
+        public void WriteCSV()
         {
             foreach (Map m in player.PlayedMaps)
             {
                 var csv = new StringBuilder();
 
-                var header = string.Format("{0},{1},{2},{3}\n", m.EffectivePlayTime, m.Times.Count(), m.AmountCrashes, m.FCRatio().ToString("0.00"));
+                var header = string.Format("{0},{1},{2}\n", m.EffectivePlayTime, m.Times.Count(), m.AmountCrashes);
                 csv.AppendLine(header);
 
                 foreach (Time t in m.Times)

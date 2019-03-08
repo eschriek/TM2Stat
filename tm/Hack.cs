@@ -50,7 +50,7 @@ namespace tm
 
             while (!gameFound)
             {
-                Console.WriteLine("Waiting for MainaPlanet");
+                Console.WriteLine("Waiting for ManiaPlanet");
 
                 if (Process.GetProcessesByName(PROCESS_NAME).Count() > 0)
                 {
@@ -60,7 +60,7 @@ namespace tm
                         gameFound = true;
                 }
 
-                System.Threading.Thread.Sleep(1000);
+                System.Threading.Thread.Sleep(2000);
             }
 
             processHandle = OpenProcess(PROCESS_WM_READ, false, process.Id);
@@ -85,6 +85,7 @@ namespace tm
             }
         }
 
+        /* For 64 bit processes, which Maniaplanet is nowadays */
         private Int64 CalculateAddress(IntPtr game_handle, IntPtr moduleBase, List<int> offsets)
         {
             byte[] nextAddress = new byte[8];
