@@ -51,8 +51,6 @@ namespace tm
 
             var detectedGameVerison = h.GetGameVersion();
 
-            Console.WriteLine(detectedGameVerison.Equals(Hack.SUPPORT_GAMEVERSION_STR));
-
             Console.WriteLine(string.Format("Detected {0}supported game version : {1} {2}",
                 (detectedGameVerison.Equals(Hack.SUPPORT_GAMEVERSION_STR)) ? "" : "un",
                 detectedGameVerison,
