@@ -16,11 +16,12 @@ namespace tm
 
         Boolean mapChanged;
         int previousTime;
+        int mapEntryTime;
 
         FixedSizedQueue<int> time_history;
-        const int time_history_limit = 100; /* Size of aforementioned fixed size Q */
+        const int time_history_limit = 150; /* Size of aforementioned fixed size Q */
         const int finish_detection_threshold_low = 5; /* Time counts 'hangs' for a short while when finished, this acts as threshold */
-        const int finish_detection_threshold_high = 50; /* Same principle, but beyond this threshold means the map is quit mid-round */
+        const int finish_detection_threshold_high = 100; /* Same principle, but beyond this threshold means the map is quit mid-round */
 
         const int REFRESH_RATE = 100;
         public const string MAP_NOMAP = "Unnamed";
@@ -53,7 +54,7 @@ namespace tm
         }
 
         private Timer InfoTimer;
-        private const int INFO_TIMER_INTERVAL = 3*60000;
+        private const int INFO_TIMER_INTERVAL = 3 * 60000;
 
         Hack hack;
         Player player;
@@ -69,6 +70,7 @@ namespace tm
             InfoTimer.Elapsed += InfoTimer_Elapsed;
 
             previousTime = TIME_INACTIVE;
+            mapEntryTime = TIME_INACTIVE;
             CurrentMapName = MAP_NOMAP;
 
             mapChanged = false;
@@ -100,10 +102,9 @@ namespace tm
 
             var finish_time_query = from x in time_history
                                     group x by x into g
-                                    let count = g.Count()
-                                    where count >= finish_detection_threshold_low &&
+                                    where g.Count() >= finish_detection_threshold_low &&
                                             g.Key != TIME_INACTIVE
-                                    select new { Value = g.Key, Count = count };
+                                    select new { Value = g.Key, Count = g.Count() };
 
             /* Few sanity checks... */
             if (finish_time_query.Count() > 0
@@ -111,6 +112,8 @@ namespace tm
                 && currentTime > 0)
             {
                 var finishTime = finish_time_query.First().Value;
+
+                Debug.Assert(finishTime > 0);
 
                 if (currentMap.Times.Count > 0)
                 {
@@ -138,10 +141,10 @@ namespace tm
 
             var finish_time_query = from x in time_history
                                     group x by x into g
-                                    let count = g.Count()
-                                    where count >= finish_detection_threshold_high &&
-                                            g.Key != TIME_INACTIVE
-                                    select new { Value = g.Key, Count = count };
+                                    where (g.Count() >= finish_detection_threshold_high &&
+                                            g.Key != TIME_INACTIVE) ||
+                                            (g.Key == mapEntryTime && g.Key != TIME_INACTIVE)
+                                    select new { Value = g.Key, Count = g.Count() };
 
             if (finish_time_query.Count() > 0)
             {
@@ -152,7 +155,7 @@ namespace tm
 
                 Debug.Assert(currentMap.EffectivePlayTime >= 0);
 
-                //Debug.WriteLine("Deleted invalid finish time : " + invalidFinishTime);
+                Console.WriteLine("Deleted invalid finish time : " + invalidFinishTime);
             }
 
         }
@@ -172,18 +175,18 @@ namespace tm
 
                 int time = hack.GetMapTime();
 
-                /* Scan for a new map name if the timer starts running */
-                if (time != TIME_INACTIVE)
-                {
-                    CurrentMapName = Utils.TrimMapNameString(hack.GetMapName());
-                }
+                CurrentMapName = Utils.TrimMapNameString(hack.GetMapName());
 
                 if (mapChanged)
                 {
                     mapChanged = false;
+                    mapEntryTime = time;
+
                     currentMap = new Map() { Name = CurrentMapName };
 
                     player.PlayedMaps.Add(currentMap);
+
+                    time_history.Clear();
                 }
 
                 /* Currently playing a map */
@@ -325,6 +328,18 @@ namespace tm
                     T outObj;
                     base.TryDequeue(out outObj);
                 }
+            }
+        }
+    }
+
+    internal static class ConcurrentQueueExtensions
+    {
+        public static void Clear<T>(this ConcurrentQueue<T> queue)
+        {
+            T item;
+            while (queue.TryDequeue(out item))
+            {
+                // do nothing
             }
         }
     }

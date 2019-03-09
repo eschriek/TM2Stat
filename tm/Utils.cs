@@ -27,7 +27,7 @@ namespace tm
         public static string FormatTimeStamp(int time)
         {
             TimeSpan t = TimeSpan.FromMilliseconds(time);
-            return string.Format("{0:D2}:{1:D2}:{2:D2}", t.Minutes, t.Seconds, t.Milliseconds);
+            return string.Format("{0:D2}:{1:D2}:{2:D3}", t.Minutes, t.Seconds, t.Milliseconds);
         }
 
         public static String DecodeAndPrintTrackManiaColorString(string s)
