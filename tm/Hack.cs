@@ -27,12 +27,17 @@ namespace tm
 
         List<int> timeAddressOffsets = new List<int> { 0x1C50FB8,0x28, 0xB8 };
         List<int> playerNicknameOffsets = new List<int> { 0x1C50EE8, 0x2D0, 0xD0, 0x58, 0x18, 0x20 };
+        List<int> gameVersionOffets = new List<int> { 0x01C9CC20, 0x60, 0x51 };
         List<int> playerNicknameSzOffsets = new List<int> { 0x1C50EE8, 0x2D0, 0xD0, 0x58, 0x18, 0x1C };
         List<int> logInfoOffsets = new List<int> { 0x1C53D78, 0x00 };
+
+        public const string SUPPORT_GAMEVERSION_STR = "date=2019-02-28_16_00 Svn=90238 GameVersion=3.3.0";
+        const int VERSION_STR_LENGTH = 49;
 
         public const string MAPNAME_ADDR_ID = "MapName";
         public const string TIME_ADDR_ID = "Time";
         public const string NICKNAME_ADDR_ID = "PlayerNickname";
+        public const string GAME_VER_ADDR_ID = "GameVersion";
         public const string PROCESS_NAME = "ManiaPlanet";
 
         public bool PrintGeekStats
@@ -70,15 +75,18 @@ namespace tm
                 Console.WriteLine("Module base address : " + moduleBaseAddress.ToInt64().ToString("X"));
 
             Int64 timeAddress = CalculateAddress(processHandle, moduleBaseAddress, timeAddressOffsets);
+            Int64 versionAddress = CalculateAddress(processHandle, moduleBaseAddress, gameVersionOffets);
             Int64 nicknameAddress = CalculateAddress(processHandle, moduleBaseAddress, playerNicknameOffsets);
             Int64 logInfoAddress = CalculateAddress(processHandle, moduleBaseAddress, logInfoOffsets);
 
             addresses.Add(TIME_ADDR_ID, timeAddress);
+            addresses.Add(GAME_VER_ADDR_ID, versionAddress);
             addresses.Add(NICKNAME_ADDR_ID, nicknameAddress);
             addresses.Add(MAPNAME_ADDR_ID, logInfoAddress);
 
             if (printGeekStats)
             {
+                Console.WriteLine("Version address : " + versionAddress.ToString("X"));
                 Console.WriteLine("Time address : " + timeAddress.ToString("X"));
                 Console.WriteLine("Nickname address : " + nicknameAddress.ToString("X"));
                 Console.WriteLine("MapName address : " + logInfoAddress.ToString("X"));
@@ -199,6 +207,11 @@ namespace tm
             } 
 
             return match.Groups[1].Value;
+        }
+
+        public String GetGameVersion()
+        {
+            return ReadString(GetAddressByName(GAME_VER_ADDR_ID), gameVersionOffets.Last(), VERSION_STR_LENGTH);
         }
 
         public String GetPlayerNickname()

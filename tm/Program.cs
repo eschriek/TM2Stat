@@ -49,6 +49,15 @@ namespace tm
             Hack h = new Hack();
             h.PrintGeekStats = true;
 
+            var detectedGameVerison = h.GetGameVersion();
+
+            Console.WriteLine(detectedGameVerison.Equals(Hack.SUPPORT_GAMEVERSION_STR));
+
+            Console.WriteLine(string.Format("Detected {0}supported game version : {1} {2}",
+                (detectedGameVerison.Equals(Hack.SUPPORT_GAMEVERSION_STR)) ? "" : "un",
+                detectedGameVerison,
+                (detectedGameVerison.Equals(Hack.SUPPORT_GAMEVERSION_STR)) ? "" : ". This tool might not work at all"));
+
             while (h.GetAddressByName(Hack.NICKNAME_ADDR_ID) == 0)
             {
                 h.RecalculateAddress(Hack.NICKNAME_ADDR_ID);
