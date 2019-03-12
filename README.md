@@ -1,5 +1,7 @@
 # TM2Stat
 
+![Alt text](tmstat.png?raw=true "Example")
+
 Work in progress
 
 An simple program that tracks training statistics as one is training maps for some tournament in Trackmania 2 Stadium.
